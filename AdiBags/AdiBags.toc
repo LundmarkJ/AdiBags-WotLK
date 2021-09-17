@@ -40,6 +40,7 @@ libs\AceHook-3.0\AceHook-3.0.xml
 libs\AceConsole-3.0\AceConsole-3.0.xml
 libs\LibSharedMedia-3.0\lib.xml
 libs\LibCompat-1.0\lib.xml
+libs\LibItemSearch-1.2\LibItemSearch-1.2.xml
 #@end-no-lib-strip@
 
 libs\LibDataBroker-1.1\LibDataBroker-1.1.lua
