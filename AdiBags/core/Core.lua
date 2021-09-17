@@ -335,7 +335,7 @@ function addon:BAG_UPDATE(event, bag)
 		AdiBagsContainer2:RefreshContents()
 		AdiBagsContainer2:FullUpdate()
 	end
-	self:SendMessage('AdiBags_UpdateAllButtons')
+	--self:SendMessage('AdiBags_UpdateAllButtons')
 	updatedBags[bag] = true
 end
 

@@ -17,11 +17,11 @@
 # You should have received a copy of the GNU General Public License
 # along with AdiBags.  If not, see <http://www.gnu.org/licenses/>.
 
-## Interface: 20502
+## Interface: 30300
 
 ## Title: AdiBags
 ## Notes: Adirelle's bag addon.
-## Author: Adirelle
+## Author: Adirelle - Backported by Empress and Kader
 ## Version: v1.9.26-bcc
 ## SavedVariables: AdiBagsDB
 ## X-Date: 2021-09-15T20:01:06Z
