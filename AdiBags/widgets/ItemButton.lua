@@ -347,12 +347,24 @@ end
 
 function buttonProto:UpdateSearch()
 	if not self.searchOverlay then return end
+	--TODO: This is under change, isFiltered is superceeded by ItemSearch lib
+	local _, _, _, _, _, _, link, isFiltered = GetContainerItemInfo(self.bag, self.slot)
+	local success, result = pcall(addon.Matches, Search, link, query)
+	if empty or (success and result) then
+		self.searchOverlay:Hide();
+	else
+		self.searchOverlay:Show();
+	end
+
+	--[[DEPRECATED CODE
+	if not self.searchOverlay then return end
 	local _, _, _, _, _, _, _, isFiltered = GetContainerItemInfo(self.bag, self.slot)
 	if isFiltered then
 		self.searchOverlay:Show();
 	else
 		self.searchOverlay:Hide();
 	end
+	]]
 end
 
 function buttonProto:UpdateCooldown()
@@ -383,16 +395,20 @@ local function GetBorder(bag, slot, itemId, settings)
 	if not settings.qualityHighlight then
 		return
 	end
-	local _, _, _, quality = GetContainerItemInfo(bag, slot)
-	if quality == ITEM_QUALITY_POOR and settings.dimJunk then
+	--! local _, _, _, quality = GetContainerItemInfo(bag, slot)
+	local _,_,quality = GetItemInfo(itemId)
+	if quality == 0 and settings.dimJunk then
 		local v = 1 - 0.5 * settings.qualityOpacity
 		return true, v, v, v, 1, nil, nil, nil, nil, "MOD"
 	end
-	if quality then --!This is added due to error where quality was nil
-		local color = quality ~= ITEM_QUALITY_COMMON and BAG_ITEM_QUALITY_COLORS[quality - 1]
+	local color = quality ~= ITEM_QUALITY_COMMON
+	local r,g,b = GetItemQualityColor(quality)
+	--print(r,g,b,color)
+	if quality == 3 then --Rare items blue does not pop enough in the interface
+		b = 1
 	end
 	if color then
-		return [[Interface\Buttons\UI-ActionButton-Border]], color.r, color.g, color.b, settings.qualityOpacity, 14/64, 49/64, 15/64, 50/64, "ADD"
+		return [[Interface\Buttons\UI-ActionButton-Border]], r, g, b, settings.qualityOpacity, 14/64, 49/64, 15/64, 50/64, "ADD"
 	end
 end
 
@@ -407,7 +423,7 @@ function buttonProto:UpdateBorder(isolatedEvent)
 		local border = self.IconQuestTexture
 		if texture == true then
 			border:SetVertexColor(1, 1, 1, 1)
-			border:SetColorTexture(r or 1, g or 1, b or 1, a or 1)
+			border:SetVertexColor(r or 1, g or 1, b or 1, a or 1)
 		else
 			border:SetTexture(texture)
 			border:SetVertexColor(r or 1, g or 1, b or 1, a or 1)
@@ -418,7 +434,7 @@ function buttonProto:UpdateBorder(isolatedEvent)
 	end
 	if self.JunkIcon then
 		local quality = self.hasItem and select(3, GetItemInfo(self.itemLink or self.itemId))
-		self.JunkIcon:SetShown(quality == ITEM_QUALITY_POOR and addon:GetInteractingWindow() == "MERCHANT")
+		self.JunkIcon:SetShown(quality == 0 and addon:GetInteractingWindow() == "MERCHANT") --TODO: Show JunkIcon does not work
 	end
 	if isolatedEvent then
 		addon:SendMessage('AdiBags_UpdateBorder', self)
