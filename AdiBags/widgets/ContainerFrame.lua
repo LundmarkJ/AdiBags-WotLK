@@ -77,6 +77,8 @@ local LSM = LibStub('LibSharedMedia-3.0')
 
 local ITEM_SEARCHBAR_LIST = {"BagItemSearchBox", "GuildItemSearchBox", "VoidItemSearchBox", "BankItemSearchBox"}
 
+
+
 --------------------------------------------------------------------------------
 -- Widget scripts
 --------------------------------------------------------------------------------
@@ -88,6 +90,21 @@ local function BagSlotButton_OnClick(button)
 		button.panel:Hide()
 	end
 	--changed instead of button.panel:SetShown(button:GetChecked())
+end
+
+--------------------------------------------------------------------------------
+-- ElvUI EditBox Functions
+--------------------------------------------------------------------------------
+
+local function SearchReset()
+	SEARCH_STRING = ""
+end
+
+local function ResetAndClear()
+	AdiBagsContainer1SearchBox:SetText(SEARCH)
+	AdiBagsContainer1SearchBox:ClearFocus()
+
+	SearchReset()
 end
 
 --------------------------------------------------------------------------------
@@ -195,13 +212,26 @@ function containerProto:OnCreate(name, isBank, bagObject)
 		L["Click to toggle the equipped bag panel, so you can change them."]
 	}, "ANCHOR_BOTTOMLEFT", -8, 0)
 	headerLeftRegion:AddWidget(bagSlotButton, 50)
-
-	local searchBox = CreateFrame("EditBox", self:GetName().."SearchBox", self, "BagSearchBoxTemplate")
-	searchBox:SetSize(130, 20)
-	searchBox:SetFrameLevel(frameLevel)
-	headerRightRegion:AddWidget(searchBox, -10, 130, 0, -1)
-	tinsert(ITEM_SEARCHBAR_LIST, searchBox:GetName())
-
+	
+	if self:GetName() == "AdiBagsContainer1" then
+		local editBox = CreateFrame("EditBox", self:GetName().."SearchBox", self)
+		--editBox = CreateFrame("EditBox", name.."EditBox", f)
+		editBox:SetFrameLevel(editBox:GetFrameLevel() + 4)
+		editBox:CreateBackdrop()
+		editBox.backdrop:Point("TOPLEFT", editBox, "TOPLEFT", -20, 2)
+		editBox:Height(15)
+		editBox:Point("BOTTOMLEFT", AdiBagsContainer1, "TOPLEFT", 300, 2)
+		editBox:Point("BOTTOMRIGHT", AdiBagsContainer1, "TOPRIGHT", -10, 2)
+		editBox:SetAutoFocus(false)
+		editBox:SetScript("OnEscapePressed", ResetAndClear)
+		editBox:SetScript("OnEnterPressed", function(eb) eb:ClearFocus() end)
+		editBox:SetScript("OnEditFocusGained", editBox.HighlightText)
+		editBox:SetScript("OnTextChanged", function() self:SendMessage('INVENTORY_SEARCH_UPDATE') end)--UpdateSearch)
+		editBox:SetScript("OnChar", function() self:SendMessage('INVENTORY_SEARCH_UPDATE') end)-- UpdateSearch)
+		editBox:SetText(SEARCH)
+		editBox:FontTemplate()
+	end
+	--END OF TEST
 	local title = self:CreateFontString(self:GetName().."Title","OVERLAY")
 	self.Title = title
 	title:SetFontObject(addon.bagFont)

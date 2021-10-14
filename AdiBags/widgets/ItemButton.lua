@@ -90,6 +90,16 @@ function buttonProto:OnCreate()
 	if self.NewItemTexture then
 		self.NewItemTexture:Hide()
 	end
+	--Search Overlay Texture
+	if not self.searchOverlay then
+		local searchOverlay = self:CreateTexture(nil, "ARTWORK")
+		searchOverlay:SetTexture("Interface\\BUTTONS\\WHITE8X8")
+		searchOverlay:SetVertexColor(0, 0, 0, 0.8)
+		searchOverlay:SetAllPoints()
+		searchOverlay:Hide()
+		self.searchOverlay = searchOverlay
+	end
+
 	self.SplitStack = nil -- Remove the function set up by the template
 end
 
@@ -250,7 +260,7 @@ function buttonProto:OnShow()
 	self:RegisterEvent('BAG_NEW_ITEMS_UPDATED', 'UpdateNew')
 	self:RegisterEvent('PLAYER_EQUIPMENT_CHANGED', 'FullUpdate')
 	if self.UpdateSearch then
-		self:RegisterEvent('INVENTORY_SEARCH_UPDATE', 'UpdateSearch')
+		self:RegisterMessage('INVENTORY_SEARCH_UPDATE', 'UpdateSearch')
 	end
 	self:RegisterEvent('UNIT_QUEST_LOG_CHANGED')
 	self:RegisterMessage('AdiBags_UpdateAllButtons', 'Update')
@@ -347,24 +357,23 @@ end
 
 function buttonProto:UpdateSearch()
 	if not self.searchOverlay then return end
-	--TODO: This is under change, isFiltered is superceeded by ItemSearch lib
+	local query = AdiBagsContainer1SearchBox:GetText() or ""
+	local searching = (query ~= "Search") and (query ~= "")
+	if (not self.hasItem) and (not searching) then self.searchOverlay:Hide() return end --Empty Slot Fix
+
 	local _, _, _, _, _, _, link, isFiltered = GetContainerItemInfo(self.bag, self.slot)
-	local success, result = pcall(addon.Matches, Search, link, query)
+	local success, result = pcall(addon.itemSearch.Matches, addon.itemSearch, link, (searching and query))
+	
 	if empty or (success and result) then
 		self.searchOverlay:Hide();
 	else
 		self.searchOverlay:Show();
 	end
-
-	--[[DEPRECATED CODE
-	if not self.searchOverlay then return end
-	local _, _, _, _, _, _, _, isFiltered = GetContainerItemInfo(self.bag, self.slot)
-	if isFiltered then
-		self.searchOverlay:Show();
-	else
-		self.searchOverlay:Hide();
+	if (query == "upgrade") or (query == "Upgrade") or (query == "+") or (query == "upg") then
+		if self.isUpgrade then
+			self.searchOverlay:Hide();
+		end
 	end
-	]]
 end
 
 function buttonProto:UpdateCooldown()
