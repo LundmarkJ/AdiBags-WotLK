@@ -406,7 +406,7 @@ local function GetBorder(bag, slot, itemId, settings)
 	end
 	--! local _, _, _, quality = GetContainerItemInfo(bag, slot)
 	local _,_,quality = GetItemInfo(itemId)
-	if quality == 0 and settings.dimJunk then
+	if false and quality == 0 and settings.dimJunk then --TODO: actually fix this
 		local v = 1 - 0.5 * settings.qualityOpacity
 		return true, v, v, v, 1, nil, nil, nil, nil, "MOD"
 	end
