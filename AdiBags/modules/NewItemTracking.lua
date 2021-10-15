@@ -47,120 +47,122 @@ local mod = addon:RegisterFilter('NewItem', 80, 'ABEvent-1.0')
 mod.uiName = L['Track new items']
 mod.uiDesc = L['Track new items in each bag, displaying a glowing aura over them and putting them in a special section. "New" status can be reset by clicking on the small "N" button at top left of bags.']
 
-local newItems = {}
+local allBagIds = {}
+
+local bags = {}
+local inventory = {}
+local glows = {}
+local frozen = false
+local inventoryScanned = false
 
 function mod:OnInitialize()
 	self.db = addon.db:RegisterNamespace(self.moduleName, {
 		profile = {
-			highlight = "legacy",
+			showGlow = true,
 			glowScale = 1.5,
 			glowColor = { 0.3, 1, 0.3, 0.7 },
-			ignoreJunk = false,
 		},
 	})
-
-	-- Upgrade from previous version
-	if self.db.profile.showGlow == false then
-		self.db.profile.highlight = "none"
-		self.db.profile.showGlow = nil
-	end
-
 	addon:SetCategoryOrder(L['New'], 100)
 end
 
 function mod:OnEnable()
-	addon:HookBagFrameCreation(self, 'OnBagFrameCreated')
-	if self.button then
-		self.button:Show()
+
+	for i, bag in addon:IterateBags() do
+		if not bags[bag.bagName] then
+			self:Debug('Adding bag', bag, bag.bagIds)
+			local data = {
+				bagIds = bag.bagIds,
+				isBank = bag.isBank,
+				counts = {},
+				newItems = {},
+				first = true,
+			}
+			for id in pairs(bag.bagIds) do
+				allBagIds[id] = id
+			end
+			if data.isBank then
+				data.GetCount = function(item)
+					return item and (GetItemCount(item, true) or 0) - (GetItemCount(item) or 0) or 0
+				end
+			else
+				data.GetCount = function(item)
+					return item and GetItemCount(item) or 0
+				end
+				data.available = true
+			end
+			bags[bag.bagName] = data
+		end
 	end
 
+	addon:HookBagFrameCreation(self, 'OnBagFrameCreated')
+	for name, bag in pairs(bags) do
+		if bag.button then
+			bag.button:Show()
+		end
+	end
+
+	self:RegisterMessage('AdiBags_PreFilter')
 	self:RegisterMessage('AdiBags_UpdateButton', 'UpdateButton')
-	self:RegisterEvent('BAG_NEW_ITEMS_UPDATED')
+
+	self:RegisterEvent('UNIT_INVENTORY_CHANGED')
+	self:RegisterEvent('BANKFRAME_OPENED')
+	self:RegisterEvent('BANKFRAME_CLOSED')
+	self:RegisterEvent('EQUIPMENT_SWAP_PENDING')
+	self:RegisterEvent('EQUIPMENT_SWAP_FINISHED')
+	self:RegisterBucketMessage('AdiBags_BagUpdated', 0.2, 'UpdateBags')
+	
+	frozen = true
+	self:ScheduleTimer('FirstUpdate', 2)
+
+	inventoryScanned = false
+
+	addon.filterProto.OnEnable(self)
 end
 
 function mod:OnDisable()
-	if self.button then
-		self.button:Hide()
+	for name, bag in pairs(bags) do
+		if bag.button then
+			bag.button:Hide()
+		end
 	end
+	addon.filterProto.OnDisable(self)
 end
 
 --------------------------------------------------------------------------------
 -- Widget creation
 --------------------------------------------------------------------------------
 
-local function ResetButton_OnClick(widget, button)
-	if button == "RightButton" then
-		return mod:OpenOptions()
-	end
-	PlaySound("igMainMenuOptionCheckBoxOn") --PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
-	-- C_NewItems.ClearAll()
-	wipe(newItems)
-	mod.button:Disable()
-	mod:SendMessage('AdiBags_FiltersChanged', true)
-	mod:SendMessage('AdiBags_UpdateAllButtons', true)
+local function ResetButton_OnClick(button)
+	PlaySound("igMainMenuOptionCheckBoxOn")
+	mod:Reset(button.bagName)
 end
 
 function mod:OnBagFrameCreated(bag)
-	if bag.isBank then return end
-	self.container = bag:GetFrame()
-	self.button = self.container:CreateModuleButton("N", 10, ResetButton_OnClick, {
+	local container = bag:GetFrame()
+
+	local button = CreateFrame("Button", nil, container, "UIPanelButtonTemplate")
+	button.bagName = bag.bagName
+	button:SetText("N")
+	button:SetWidth(20)
+	button:SetHeight(20)
+	button:SetScript("OnClick", ResetButton_OnClick)
+	container:AddHeaderWidget(button, 10)
+	addon.SetupTooltip(button, {
 		L["Reset new items"],
-		L["Click to reset item status."],
-		L["Right-click to configure."]
-	})
-	self.button:Disable()
-	self:SendMessage('AdiBags_FiltersChanged', true)
-	self:UpdateModuleButton()
-end
+		L["Click to reset item status."]
+	}, "ANCHOR_TOPLEFT", 0, 8)
 
-function mod:UpdateButton(event, button)
-	if addon.BAG_IDS.BANK[button.bag] then return end
-	local isNew = self:IsNew(button.bag, button.slot, button.itemLink)
-	self:ShowLegacyGlow(button, isNew and mod.db.profile.highlight == "legacy")
-	self:ShowBlizzardGlow(button, isNew and mod.db.profile.highlight == "blizzard")
-	self:UpdateModuleButton()
-end
-
-function mod:UpdateModuleButton()
-	if next(newItems) or self.container.ToSortSection:IsShown() then
-		self.button:Enable()
-	else
-		self.button:Disable()
+	if not next(bags[bag.bagName].newItems) then
+		button:Disable()
 	end
-end
 
---------------------------------------------------------------------------------
--- Filtering
---------------------------------------------------------------------------------
+	container:HookScript('OnShow', function()
+		mod:UpdateBags(bag.bagIds, 'OnShow')
+	end)
 
-function mod:IsNew(bag, slot, link)
-	if not link then
-		return false
-	elseif newItems[link] then
-		return true
-	elseif not addon.BAG_IDS.BANK[bag]
-		-- and C_NewItems.IsNewItem(bag, slot)
-		and not IsBattlePayItem(bag, slot)
-		and (not self.db.profile.ignoreJunk or select(4, GetContainerItemInfo(bag, slot)) ~= ITEM_QUALITY_POOR)
-	then
-		newItems[link] = true
-		return true
-	end
-	return false
-end
-
-function mod:BAG_NEW_ITEMS_UPDATED(event)
-	if self.button and self.button:IsVisible() then
-		self:SendMessage('AdiBags_UpdateAllButtons', true)
-		self:UpdateModuleButton()
-	end
-end
-
-function mod:Filter(slotData)
-	if self:IsNew(slotData.bag, slotData.slot, slotData.link) then
-		self:UpdateModuleButton()
-		return L["Recent Items"]
-	end
+	bags[bag.bagName].button = button
+	bags[bag.bagName].container = container
 end
 
 --------------------------------------------------------------------------------
@@ -169,16 +171,10 @@ end
 
 function mod:GetOptions()
 	return {
-		highlight = {
-			name = L['Highlight style'],
-			type = 'select',
+		showGlow = {
+			name = L['New item highlight'],
+			type = 'toggle',
 			order = 10,
-			width = 'double',
-			values = {
-				none = L["None"],
-				legacy = L["Legacy"],
-				blizzard = L["6.0"]
-			}
 		},
 		glowScale = {
 			name = L['Highlight scale'],
@@ -196,51 +192,190 @@ function mod:GetOptions()
 			order = 30,
 			hasAlpha = true,
 		},
-		ignoreJunk = {
-			name = L['Ignore low quality items'],
-			type = 'toggle',
-			order = 40,
-			set = function(info, ...)
-				info.handler:Set(info, ...)
-				self:SendMessage('AdiBags_FiltersChanged', true)
-				self:SendMessage('AdiBags_UpdateAllButtons', true)
-			end,
-			width = 'double',
-		},
 	}, addon:GetOptionHandler(self)
 end
 
 --------------------------------------------------------------------------------
--- Blizzard glow
+--
 --------------------------------------------------------------------------------
 
-function mod:ShowBlizzardGlow(button, enable)
-	if enable then
-		local _, _, _, quality = GetContainerItemInfo(button.bag, button.slot)
-		if quality and NEW_ITEM_ATLAS_BY_QUALITY[quality] then
-			button.NewItemTexture:SetAtlas(NEW_ITEM_ATLAS_BY_QUALITY[quality])
-		else
-			button.NewItemTexture:SetAtlas("bags-glow-white")
+function mod:UNIT_INVENTORY_CHANGED(event, unit)
+	if unit == "player" then
+		self:Debug(event, unit)
+		inventoryScanned = false
+	end
+end
+
+function mod:BANKFRAME_OPENED(event)
+	self:Debug(event)
+	self:UpdateInventory(event)
+	for name, bag in pairs(bags) do
+		if bag.isBank then
+			bag.available = true
+			self:UpdateBags(bag.bagIds, event)
 		end
-		button.NewItemTexture:Show()
-		if not button.flashAnim:IsPlaying() and not button.newitemglowAnim:IsPlaying() then
-			button.flashAnim:Play()
-			button.newitemglowAnim:Play()
+	end
+end
+
+function mod:BANKFRAME_CLOSED(event)
+	self:Debug(event)
+	for name, bag in pairs(bags) do
+		if bag.isBank then
+			bag.available = false
 		end
-	elseif button.NewItemTexture then
-		button.NewItemTexture:Hide()
-		if button.flashAnim:IsPlaying() or button.newitemglowAnim:IsPlaying() then
-			button.flashAnim:Stop()
-			button.newitemglowAnim:Stop()
+	end
+end
+
+function mod:EQUIPMENT_SWAP_PENDING(event)
+	self:Debug(event)
+	frozen = true
+end
+
+function mod:EQUIPMENT_SWAP_FINISHED(event)
+	self:Debug(event)
+	frozen = false
+	inventoryScanned = false
+	self:UpdateBags(allBagIds, event)
+end
+
+function mod:FirstUpdate(event)
+	self:Debug('Force first update')
+	frozen = false
+	inventoryScanned = false
+	self:UpdateBags(allBagIds, event)
+end
+
+function mod:UpdateBags(bagIds, event)
+	if frozen then return end
+	self:Debug('UpdateBags', event or "AdiBags_BagUpdated")
+	for name, bag in pairs(bags) do
+		if bag.available and (bag.first or (bag.container and bag.container:IsVisible())) then
+			local counts = bag.counts
+			local bagUpdated = false
+			local first = bag.first
+
+			-- Gather every item id of every updated bag (or all bags on first update)
+			for bagId in pairs(bag.bagIds) do
+				if first or bagIds[bagId] then
+					bagUpdated = true
+					for slot = 1, GetContainerNumSlots(bagId) do
+						local itemId = GetContainerItemID(bagId, slot)
+						if itemId and not counts[itemId] and GetItemInfo(itemId) then
+							counts[itemId] = 0 -- Never seen before, assume we haven't any of it
+						end
+					end
+				end
+			end
+
+			if bagUpdated then
+				self:Debug(name, 'updated, checking items')
+
+				-- Update inventory if need be
+				if not inventoryScanned then
+					self:UpdateInventory(event or "AdiBags_BagUpdated")
+				end
+
+				-- Merge items from inventory
+				for slot, itemId in pairs(inventory) do
+					if not counts[itemId] then
+						counts[itemId] = 0 -- Never seen before, assume we haven't any of it
+					end
+				end
+
+				-- Update counts and new statuses
+				local newItems, GetCount = bag.newItems, bag.GetCount
+				for itemId, oldCount in pairs(counts) do
+					local newCount = GetCount(itemId)
+					counts[itemId] = newCount
+					if oldCount ~= newCount then
+						if not bag.first and oldCount < newCount and not newItems[itemId] then
+							--[===[@debug@
+							self:Debug(itemId, GetItemInfo(itemId), ':', oldCount, '=>', newCount, 'NEW!')
+							--@end-debug@]===]
+							newItems[itemId] = true
+							bag.updated = true
+						end
+					end
+				end
+				bag.first = nil
+			end
+		end
+	end
+
+	local filterChanged = false
+	for name, bag in pairs(bags) do
+		if bag.button then
+			if next(bag.newItems) then
+				bag.button:Enable()
+			else
+				bag.button:Disable()
+			end
+		end
+		if bag.updated and bag.available then
+			self:Debug(name, 'contains new new items')
+			bag.updated = nil
+			filterChanged  = true
+		end
+	end
+	if filterChanged then
+		self:Debug('Need to filter bags again')
+		self:SendMessage('AdiBags_FiltersChanged')
+	end
+end
+
+function mod:UpdateInventory(event)
+	if frozen then return end
+	self:Debug('UpdateInventory', event)
+
+	-- All equipped items and bags
+	for slot = 0, 20 do
+		inventory[slot] = GetInventoryItemID("player", slot) or nil
+	end
+	-- Bank equipped bags
+	for slot = 68, 74 do
+		inventory[slot] = GetInventoryItemID("player", slot) or nil
+	end
+
+	inventoryScanned = true
+end
+
+function mod:Reset(name)
+	local bag = bags[name]
+	self:Debug('Reset', name)
+	wipe(bag.counts)
+	wipe(bag.newItems)
+	bag.first = true
+	bag.updated = true
+	self:UpdateBags(bag.bagIds, event)
+end
+
+function mod:IsNew(itemId, bagName)
+	if not itemId or not bagName then return false end
+	local bag = bags[bagName]
+	return not bag.first and bag.newItems[itemId]
+end
+
+--------------------------------------------------------------------------------
+-- Filtering
+--------------------------------------------------------------------------------
+
+do
+	local currentContainerName
+
+	function mod:AdiBags_PreFilter(event, container)
+		currentContainerName = container.name
+	end
+
+	function mod:Filter(slotData)
+		if self:IsNew(slotData.itemId, currentContainerName) then
+			return L["New"]
 		end
 	end
 end
 
 --------------------------------------------------------------------------------
--- Legacy glow
+-- Item glows
 --------------------------------------------------------------------------------
-
-local glows = {}
 
 local function Glow_Update(glow)
 	glow:SetScale(mod.db.profile.glowScale)
@@ -277,9 +412,9 @@ local function CreateGlow(button)
 	return glow
 end
 
-function mod:ShowLegacyGlow(button, enable)
+function mod:UpdateButton(event, button)
 	local glow = glows[button]
-	if enable then
+	if mod.db.profile.showGlow and self:IsNew(button:GetItemId(), button.container.name) then
 		if not glow then
 			glow = CreateGlow(button)
 		end
