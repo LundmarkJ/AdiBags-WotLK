@@ -357,7 +357,7 @@ end
 
 function buttonProto:UpdateSearch()
 	if not self.searchOverlay then return end
-	local query = AdiBagsContainer1SearchBox:GetText() or ""
+	local query = AdiBagsSearchBox:GetText() or ""
 	local searching = (query ~= "Search") and (query ~= "")
 	if (not self.hasItem) and (not searching) then self.searchOverlay:Hide() return end --Empty Slot Fix
 
